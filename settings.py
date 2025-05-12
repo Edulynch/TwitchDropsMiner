@@ -1,3 +1,5 @@
+# Cambios necesarios en settings.py
+
 from __future__ import annotations
 
 from typing import Any, TypedDict, TYPE_CHECKING
@@ -20,6 +22,7 @@ class SettingsFile(TypedDict):
     connection_quality: int
     tray_notifications: bool
     priority_mode: PriorityMode
+    forced_linked_games: set[str]  # Añadido: conjunto de nombres de juegos forzados como vinculados
 
 
 default_settings: SettingsFile = {
@@ -31,6 +34,7 @@ default_settings: SettingsFile = {
     "language": DEFAULT_LANG,
     "tray_notifications": True,
     "priority_mode": PriorityMode.PRIORITY_ONLY,
+    "forced_linked_games": set(),  # Añadido: inicializado como un conjunto vacío
 }
 
 
@@ -52,6 +56,7 @@ class Settings:
     connection_quality: int
     tray_notifications: bool
     priority_mode: PriorityMode
+    forced_linked_games: set[str]  # Añadido: property para acceder al conjunto de juegos forzados
 
     PASSTHROUGH = ("_settings", "_args", "_altered")
 

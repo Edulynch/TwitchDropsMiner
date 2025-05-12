@@ -1288,6 +1288,15 @@ class InventoryOverview:
         ttk.Button(
             filter_frame, text=_("gui", "inventory", "filter", "refresh"), command=self.refresh
         ).grid(column=(icolumn := icolumn + 1), row=0)
+
+        # Button Force all
+        self._force_all_button = ttk.Button(
+            filter_frame,
+            text="Forzar todos",
+            command=self.toggle_force_all_games
+        )
+        self._force_all_button.grid(column=(icolumn := icolumn + 1), row=0)
+
         # Inventory view
         self._canvas = tk.Canvas(master, scrollregion=(0, 0, 0, 0))
         self._canvas.grid(column=0, row=1, sticky="nsew")
@@ -1307,6 +1316,53 @@ class InventoryOverview:
         self._canvas.create_window(0, 0, anchor="nw", window=self._main_frame)
         self._campaigns: dict[DropsCampaign, CampaignDisplay] = {}
         self._drops: dict[str, ttk.Label] = {}
+
+    def toggle_force_all_games(self):
+        """
+        Alterna entre forzar todos los juegos y no forzar ninguno.
+        """
+        twitch = self._manager._twitch
+        # Determinar si hay juegos que no están forzados
+        has_non_forced = False
+
+        for campaign, display in self._campaigns.items():
+            if (display["frame"].winfo_viewable() and
+                    campaign.game.name not in twitch.settings.forced_linked_games):
+                has_non_forced = True
+                break
+
+        if has_non_forced:
+            # Si hay juegos no forzados, forzarlos todos
+            games_forced = []
+            for campaign, display in self._campaigns.items():
+                if display["frame"].winfo_viewable():
+                    game_name = campaign.game.name
+                    if game_name not in twitch.settings.forced_linked_games:
+                        twitch.settings.forced_linked_games.add(game_name)
+                        games_forced.append(game_name)
+
+            if games_forced:
+                self._force_all_button.config(text="No forzar ninguno")
+                twitch.settings.alter()
+                self._manager.print(f"Juegos forzados como vinculados: {', '.join(games_forced)}")
+        else:
+            # Si todos los juegos están forzados, quitarlos todos
+            games_removed = []
+            for campaign, display in self._campaigns.items():
+                if display["frame"].winfo_viewable():
+                    game_name = campaign.game.name
+                    if game_name in twitch.settings.forced_linked_games:
+                        twitch.settings.forced_linked_games.discard(game_name)
+                        games_removed.append(game_name)
+
+            if games_removed:
+                self._force_all_button.config(text="Forzar todos")
+                twitch.settings.alter()
+                self._manager.print(f"Juegos que ya no están forzados: {', '.join(games_removed)}")
+
+        # Actualizar la visualización y forzar actualización de canales
+        self.refresh()
+        twitch.change_state(State.INVENTORY_FETCH)
 
     def _update_visibility(self, campaign: DropsCampaign):
         # True if the campaign is supposed to show, False makes it hidden.
@@ -1356,8 +1412,30 @@ class InventoryOverview:
             status_label = self._campaigns[campaign]["status"]
             status_text, status_color = self.get_status(campaign)
             status_label.config(text=status_text, foreground=status_color)
+
+            # Actualizar botón si existe
+            if not campaign.linked:
+                for child in self._campaigns[campaign]["frame"].winfo_children():
+                    if (isinstance(child, ttk.Button) and
+                            child.cget("text") in ["Forzar farmeo", "No forzar"]):
+                        is_forced = campaign.game.name in self._settings.forced_linked_games
+                        child.config(text="No forzar" if is_forced else "Forzar farmeo")
+
             # visibility
             self._update_visibility(campaign)
+
+        # Actualizar texto del botón "Forzar todos/No forzar ninguno"
+        if hasattr(self, "_force_all_button"):
+            has_non_forced = False
+            for campaign, display in self._campaigns.items():
+                if (display["frame"].winfo_viewable() and
+                        campaign.game.name not in self._settings.forced_linked_games):
+                    has_non_forced = True
+                    break
+            self._force_all_button.config(
+                text="Forzar todos" if has_non_forced else "No forzar ninguno"
+            )
+
         self._canvas_update()
 
     def _canvas_update(self, event: tk.Event[tk.Canvas] | None = None):
@@ -1477,6 +1555,23 @@ class InventoryOverview:
             self._update_visibility(campaign)
             self._canvas_update()
 
+        # Añadir botón para forzar farmeo inmediatamente
+        if not campaign.linked:
+            # Determinar texto del botón basado en estado actual
+            is_forced = campaign.game.name in self._settings.forced_linked_games
+            button_text = "No forzar" if is_forced else "Forzar farmeo"
+
+            # Crear botón que alterna estado
+            force_button = ttk.Button(
+                campaign_frame,
+                text=button_text
+            )
+            # Esta forma evita problemas con variables en lambdas
+            force_button.config(command=lambda btn=force_button: self.toggle_force_game(campaign, btn))
+
+            # Mejoramos la posición del botón ahora que no hay checkbox
+            force_button.grid(column=1, row=3, sticky="sw", padx=4)
+
     def clear(self) -> None:
         for child in self._main_frame.winfo_children():
             child.destroy()
@@ -1528,6 +1623,74 @@ class InventoryOverview:
             return
         self.update_progress(drop, label)
 
+    def force_all_games(self):
+        """
+        Fuerza todos los juegos actualmente visibles en el inventario como vinculados.
+        """
+        twitch = self._manager._twitch
+        games_forced = []
+
+        # Recorrer todas las campañas visibles
+        for campaign, display in self._campaigns.items():
+            if display["frame"].winfo_viewable():  # Solo considerar campañas visibles
+                game_name = campaign.game.name
+                if game_name not in twitch.settings.forced_linked_games:
+                    twitch.settings.forced_linked_games.add(game_name)
+                    games_forced.append(game_name)
+
+        if games_forced:
+            twitch.settings.alter()
+            self._manager.print(f"Juegos forzados como vinculados: {', '.join(games_forced)}")
+            twitch.change_state(State.INVENTORY_FETCH)
+        else:
+            self._manager.print("No se encontraron juegos nuevos para forzar.")
+
+        # Actualizar los botones de todos los juegos en la interfaz
+        self.refresh()
+
+    def toggle_force_game(self, campaign: DropsCampaign, button: ttk.Button):
+        """
+        Alterna el estado de forzado de un juego y actualiza el texto del botón.
+
+        Args:
+            campaign: La campaña del juego
+            button: El botón que controla el estado
+        """
+        twitch = self._manager._twitch
+        game_name = campaign.game.name
+
+        if game_name in twitch.settings.forced_linked_games:
+            # Si ya está forzado, quitarlo
+            twitch.settings.forced_linked_games.discard(game_name)
+            button.config(text="Forzar farmeo")
+            self._manager.print(f"Juego {game_name} ya no está forzado")
+        else:
+            # Si no está forzado, añadirlo
+            twitch.settings.forced_linked_games.add(game_name)
+            button.config(text="No forzar")
+            self._manager.print(f"Forzando {game_name} como vinculado")
+
+        twitch.settings.alter()
+        # Actualizar la visualización y forzar actualización de canales
+        self.refresh()
+        twitch.change_state(State.INVENTORY_FETCH)
+
+    def force_game_farming(self, game_name: str):
+        """
+        Solución general para forzar el farmeo de cualquier juego.
+
+        Args:
+            game_name: Nombre del juego a forzar
+        """
+        twitch = self._manager._twitch
+
+        # Marcar el juego como forzado
+        twitch.settings.forced_linked_games.add(game_name)
+        twitch.settings.alter()
+
+        # Forzar actualización completa
+        self._manager.print(f"Forzando {game_name} como vinculado y actualizando...")
+        twitch.change_state(State.INVENTORY_FETCH)
 
 def proxy_validate(entry: PlaceholderEntry, settings: Settings) -> bool:
     raw_url = entry.get().strip()

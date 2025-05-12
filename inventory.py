@@ -360,7 +360,9 @@ class DropsCampaign:
 
     @property
     def eligible(self) -> bool:
-        return self.linked or self.has_badge_or_emote
+        # Verificar si el juego está en la lista de juegos forzados como vinculados
+        forced_linked = self.game.name in self._twitch.settings.forced_linked_games
+        return self.linked or forced_linked or self.has_badge_or_emote
 
     @cached_property
     def has_badge_or_emote(self) -> bool:
