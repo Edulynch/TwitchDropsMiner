@@ -25,6 +25,7 @@ if __name__ == "__main__":
     from exceptions import CaptchaRequired
     from utils import lock_file
     from constants import LOGGING_LEVELS, SELF_PATH, FILE_FORMATTER, LOG_PATH, LOCK_PATH
+    from telegram_logger import TelegramHandler
 
     if TYPE_CHECKING:
         pass
@@ -136,6 +137,22 @@ if __name__ == "__main__":
             handler.setFormatter(FILE_FORMATTER)
             logger.addHandler(handler)
 
+        # Setup Telegram handler (if configured)
+        telegram_handler: TelegramHandler | None = None
+        if settings.telegram_bot_token and settings.telegram_chat_id:
+            telegram_handler = TelegramHandler(
+                bot_token=settings.telegram_bot_token,
+                chat_id=settings.telegram_chat_id,
+                flush_interval=5.0,
+            )
+            telegram_handler.setFormatter(logging.Formatter(
+                "{asctime} {levelname}: {message}",
+                style='{',
+                datefmt="%Y-%m-%d %H:%M:%S",
+            ))
+            logger.addHandler(telegram_handler)
+            telegram_handler.start()
+
         # Disable root logger to prevent double messages
         if settings.logging_level > logging.DEBUG:
             logging.getLogger().setLevel(logging.WARNING)
@@ -188,6 +205,8 @@ if __name__ == "__main__":
                 loop.remove_signal_handler(signal.SIGINT)
                 loop.remove_signal_handler(signal.SIGTERM)
             logger.info(_("gui", "status", "exiting"))
+            if telegram_handler is not None:
+                await telegram_handler.async_close()
             await client.shutdown()
             
         if not client.close_requested:
