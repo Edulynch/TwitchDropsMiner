@@ -138,7 +138,7 @@ if __name__ == "__main__":
         logger.addHandler(console_handler)
 
         if settings.log:
-            handler = logging.FileHandler(LOG_PATH)
+            handler = logging.FileHandler(LOG_PATH, encoding='utf-8')
             handler.setFormatter(FILE_FORMATTER)
             logger.addHandler(handler)
 
